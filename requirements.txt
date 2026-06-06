@@ -1,0 +1,11 @@
+torch
+torchvision
+gymnasium[atari]
+stable-baselines3>=2.0.0
+numpy
+opencv-python
+matplotlib
+ale-py
+AutoROM[accept-rom-license]
+tensorboard
+flask

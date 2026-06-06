@@ -1,0 +1,7 @@
+Environment: ALE/Pong-v5
+OOD Step: 200
+New Frameskip: 2
+LeWM AUROC: 0.484525
+LeWM F1: 0.666667
+Baseline AUROC: 0.322075
+Baseline F1: 0.666667
