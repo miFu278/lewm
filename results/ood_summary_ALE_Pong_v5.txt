@@ -1,0 +1,23 @@
+========================================================================
+OOD DYNAMICS DETECTION — EVALUATION REPORT
+========================================================================
+Environment : ALE/Pong-v5
+Total Steps : 600  |  OOD Trigger : step 300
+Seeds       : 3  (mean ± std)
+
+Variant      Model           AUROC         F1        ECE      Delay
+------------------------------------------------------------------------
+fs→2         LeWM       0.3961±0.0237  0.6667±0.0000  0.3271±0.0198  2.0±0.0
+             Baseline   0.9782±0.0105  0.9723±0.0058  0.2154±0.0034  2.0±0.0
+------------------------------------------------------------------------
+fs→8         LeWM       0.4145±0.0315  0.6667±0.0000  0.3023±0.0137  2.0±0.0
+             Baseline   0.9888±0.0016  0.9622±0.0050  0.4054±0.0023  2.0±0.0
+------------------------------------------------------------------------
+
+Metrics:
+  AUROC  : Area Under ROC Curve. Higher = better. Random = 0.5
+  F1     : Best F1 over all thresholds. Higher = better.
+  ECE    : Expected Calibration Error. Lower = better.
+  Delay  : Steps after OOD trigger before detection. Lower = better.
+           -1 means detection failed.
+========================================================================
