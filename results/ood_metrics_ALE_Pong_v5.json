@@ -1,0 +1,42 @@
+{
+  "2": {
+    "n_seeds": 3,
+    "frameskip": 2,
+    "lewm_auroc_mean": 0.31428148148148144,
+    "lewm_auroc_std": 0.0033867489701933386,
+    "lewm_f1_mean": 0.667166604174478,
+    "lewm_f1_std": 0.0007070184038860581,
+    "lewm_ece_mean": 0.37663003488748953,
+    "lewm_ece_std": 0.009716749366772115,
+    "lewm_delay_mean": 2.3333333333333335,
+    "lewm_delay_std": 0.4714045207910317,
+    "base_auroc_mean": 0.9499629629629629,
+    "base_auroc_std": 0.0194826087548805,
+    "base_f1_mean": 0.9409340780128944,
+    "base_f1_std": 0.0018417622505219268,
+    "base_ece_mean": 0.22505106057803023,
+    "base_ece_std": 0.01173965424166597,
+    "base_delay_mean": 2.0,
+    "base_delay_std": 0.0
+  },
+  "8": {
+    "n_seeds": 3,
+    "frameskip": 8,
+    "lewm_auroc_mean": 0.8190777777777778,
+    "lewm_auroc_std": 0.05090982829752967,
+    "lewm_f1_mean": 0.7792077619586463,
+    "lewm_f1_std": 0.04417495616279297,
+    "lewm_ece_mean": 0.37215012838151945,
+    "lewm_ece_std": 0.0352670271199652,
+    "lewm_delay_mean": 7.0,
+    "lewm_delay_std": 1.4142135623730951,
+    "base_auroc_mean": 0.9791851851851852,
+    "base_auroc_std": 0.0010199787512244196,
+    "base_f1_mean": 0.9430467156635224,
+    "base_f1_std": 0.007576419344050322,
+    "base_ece_mean": 0.34044377984717106,
+    "base_ece_std": 0.09046510290403931,
+    "base_delay_mean": 2.0,
+    "base_delay_std": 0.0
+  }
+}
