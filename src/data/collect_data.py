@@ -5,6 +5,7 @@ import os
 import cv2
 import sys
 import argparse
+import time
 from stable_baselines3 import PPO
 
 # Thêm đường dẫn project vào sys.path để import env
@@ -13,6 +14,7 @@ project_dir = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_dir)
 
 from src.env.atari_ood_wrapper import AtariDynamicFrameskipWrapper
+from src.env.procgen_ood_wrapper import ProcgenOODWrapper
 
 def collect_atari_data(env_id="ALE/Pong-v5", num_episodes=5, save_dir="datasets", model_path=None):
     """
@@ -23,10 +25,14 @@ def collect_atari_data(env_id="ALE/Pong-v5", num_episodes=5, save_dir="datasets"
     save_dir_full = os.path.join(project_dir, save_dir)
     os.makedirs(save_dir_full, exist_ok=True)
     
-    # Thiết lập môi trường NoFrameskip
-    # Cần set frameskip=1 để wrapper tự quản lý frameskip
-    env = gym.make(env_id, frameskip=1, render_mode="rgb_array")
-    env = AtariDynamicFrameskipWrapper(env, initial_frameskip=4)
+    # Thiết lập môi trường
+    if "procgen" in env_id.lower():
+        env = gym.make(env_id, render_mode="rgb_array")
+        env = ProcgenOODWrapper(env)
+    else:
+        # Cần set frameskip=1 để wrapper tự quản lý frameskip cho Atari
+        env = gym.make(env_id, frameskip=1, render_mode="rgb_array")
+        env = AtariDynamicFrameskipWrapper(env, initial_frameskip=4)
     
     # Load model nếu có
     model = None
@@ -97,9 +103,10 @@ def collect_atari_data(env_id="ALE/Pong-v5", num_episodes=5, save_dir="datasets"
     rew_np = np.array(rewards, dtype=np.float32)
     term_np = np.array(terminals, dtype=bool)
     
-    # Format tên file: atari_data_Pong_v5.npz
+    # Format tên file: atari_data_Pong_v5_{timestamp}.npz
     clean_env_id = env_id.replace("/", "_").replace("-", "_")
-    save_path = os.path.join(save_dir_full, f"atari_data_{clean_env_id}.npz")
+    timestamp = int(time.time())
+    save_path = os.path.join(save_dir_full, f"atari_data_{clean_env_id}_{timestamp}.npz")
     np.savez_compressed(save_path, obs=obs_np, actions=act_np, rewards=rew_np, terminals=term_np)
     print(f"\n[Thành công] Đã lưu dataset tại:\n {save_path}")
     print(f"Kích thước tensor hình ảnh: {obs_np.shape} (frames, height, width)")

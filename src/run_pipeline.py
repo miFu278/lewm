@@ -20,6 +20,7 @@ if __name__ == "__main__":
     os.chdir(project_dir)
     
     print("================ BẮT ĐẦU PIPELINE TỰ ĐỘNG ==================")
+    print("Lưu ý: Có thể sửa các lệnh dưới đây thành --env procgen:procgen-coinrun-v0 để chạy với Procgen.")
     print("1. Huấn luyện PPO Agent (300.000 timesteps)...")
     run_cmd(r".\.venv\Scripts\python.exe src/train_agent.py --env ALE/Pong-v5 --timesteps 300000")
     

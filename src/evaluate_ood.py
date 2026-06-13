@@ -20,6 +20,7 @@ if project_dir not in sys.path:
     sys.path.append(project_dir)
  
 from src.env.atari_ood_wrapper import AtariDynamicFrameskipWrapper
+from src.env.procgen_ood_wrapper import ProcgenOODWrapper
 from src.models.lewm import LeWorldModel
 from src.models.baseline import PixelPredictor
  
@@ -240,8 +241,12 @@ def run_single_seed(
     Chạy một lượt evaluation trên một seed, trả về dict kết quả.
     """
     # Setup env
-    env = gym.make(env_id, frameskip=1, render_mode="rgb_array")
-    env = AtariDynamicFrameskipWrapper(env, initial_frameskip=4)
+    if "procgen" in env_id.lower():
+        env = gym.make(env_id, render_mode="rgb_array")
+        env = ProcgenOODWrapper(env)
+    else:
+        env = gym.make(env_id, frameskip=1, render_mode="rgb_array")
+        env = AtariDynamicFrameskipWrapper(env, initial_frameskip=4)
     env.action_space.seed(seed)
  
     # Buffers
@@ -250,6 +255,7 @@ def run_single_seed(
     latent_surprises_norm: list[float] = []
     pixel_surprises_norm: list[float] = []
     labels: list[int] = []
+    rewards: list[float] = []
  
     lewm_normalizer = OnlineEMANormalizer(alpha=ema_alpha)
     pixel_normalizer = OnlineEMANormalizer(alpha=ema_alpha)
@@ -285,10 +291,16 @@ def run_single_seed(
  
             # Kích hoạt OOD đúng tại ood_step
             if step == ood_step:
-                env.trigger_ood(new_frameskip=new_frameskip)
+                if "procgen" in env_id.lower():
+                    # Giả định procgen wrapper cần tham số momentum_prob
+                    momentum_prob = 0.3 if new_frameskip > 0 else 0.0 # dùng new_frameskip như 1 cách trick
+                    env.trigger_ood(momentum_prob=momentum_prob)
+                else:
+                    env.trigger_ood(new_frameskip=new_frameskip)
  
             # Step env
-            next_obs, _, terminated, truncated, _ = env.step(action_val)
+            next_obs, reward_val, terminated, truncated, _ = env.step(action_val)
+            rewards.append(float(reward_val))
             done = terminated or truncated
  
             # Label
@@ -350,7 +362,32 @@ def run_single_seed(
     lewm_fpr, lewm_tpr = compute_roc_curve(y_true, l_norm)
     base_fpr, base_tpr = compute_roc_curve(y_true, p_norm)
  
+    # Smoothing reward
+    rewards_arr = np.array(rewards)
+    smoothed_rewards = np.zeros_like(rewards_arr)
+    if len(rewards_arr) > 0:
+        smoothed_rewards[0] = rewards_arr[0]
+        alpha = 0.1
+        for i in range(1, len(rewards_arr)):
+            smoothed_rewards[i] = alpha * rewards_arr[i] + (1 - alpha) * smoothed_rewards[i - 1]
+
+    # Calculate Pearson correlation between surprise and reward in OOD phase
+    ood_mask = y_true == 1
+    if ood_mask.sum() > 2:
+        try:
+            import scipy.stats as stats
+            lewm_corr, _ = stats.pearsonr(l_norm[ood_mask], smoothed_rewards[ood_mask])
+            base_corr, _ = stats.pearsonr(p_norm[ood_mask], smoothed_rewards[ood_mask])
+        except Exception:
+            lewm_corr, base_corr = 0.0, 0.0
+    else:
+        lewm_corr, base_corr = 0.0, 0.0
+ 
     return {
+        "rewards": rewards_arr,
+        "smoothed_rewards": smoothed_rewards,
+        "lewm_corr": lewm_corr,
+        "base_corr": base_corr,
         # Raw arrays (để plot)
         "l_norm": l_norm,
         "p_norm": p_norm,
@@ -415,6 +452,8 @@ def run_multi_seed(
         "lewm_ece_std":    agg("lewm_ece")[1],
         "lewm_delay_mean": agg("lewm_delay")[0],
         "lewm_delay_std":  agg("lewm_delay")[1],
+        "lewm_corr_mean":  agg("lewm_corr")[0],
+        "lewm_corr_std":   agg("lewm_corr")[1],
         # Baseline
         "base_auroc_mean": agg("base_auroc")[0],
         "base_auroc_std":  agg("base_auroc")[1],
@@ -424,6 +463,8 @@ def run_multi_seed(
         "base_ece_std":    agg("base_ece")[1],
         "base_delay_mean": agg("base_delay")[0],
         "base_delay_std":  agg("base_delay")[1],
+        "base_corr_mean":  agg("base_corr")[0],
+        "base_corr_std":   agg("base_corr")[1],
         # Raw arrays từ seed cuối (để vẽ representative plot)
         "_last_result": all_results[-1],
     }
@@ -447,8 +488,8 @@ def plot_results(
     n_variants = len(results_by_fs)
     fig, axes = plt.subplots(
         nrows=n_variants,
-        ncols=2,
-        figsize=(14, 4 * n_variants),
+        ncols=3,
+        figsize=(20, 4 * n_variants),
     )
     if n_variants == 1:
         axes = np.array([axes])  # Đảm bảo 2D indexing
@@ -487,6 +528,18 @@ def plot_results(
         ax_roc.set_xlim([-0.02, 1.02])
         ax_roc.set_ylim([-0.02, 1.02])
  
+        # ── Panel C: Return Degradation ──────────────────────────────────
+        ax_rew = axes[row_idx, 2]
+        ax_rew.plot(x, last["smoothed_rewards"], color="green", lw=1.5,
+                    label=f"Smoothed Reward\nCorr(LeWM): {agg['lewm_corr_mean']:.2f}")
+        ax_rew.axvline(x=ood_step, color="red", ls="--", lw=2,
+                       label=f"OOD trigger")
+        ax_rew.set_title(f"Return Degradation | frameskip/OOD→{fs_val}", fontsize=12, fontweight="bold")
+        ax_rew.set_xlabel("Step")
+        ax_rew.set_ylabel("Smoothed Reward")
+        ax_rew.legend(loc="best", fontsize=9)
+        ax_rew.grid(True, ls=":", alpha=0.5)
+
     plt.suptitle(
         f"OOD Dynamics Detection — {env_id}\n"
         f"LeWM (JEPA) vs Pixel Reconstruction Baseline",
@@ -502,7 +555,7 @@ def plot_results(
 # REPORT PRINTER
 # ═════════════════════════════════════════════════════════════════════════════
  
-SEPARATOR = "=" * 72
+SEPARATOR = "=" * 84
  
 def print_and_save_report(
     results_by_fs: dict,
@@ -522,29 +575,31 @@ def print_and_save_report(
     lines.append(f"Seeds       : {n_seeds}  (mean ± std)")
     lines.append("")
  
-    header = f"{'Variant':<12} {'Model':<10} {'AUROC':>10} {'F1':>10} {'ECE':>10} {'Delay':>10}"
+    header = f"{'Variant':<12} {'Model':<10} {'AUROC':>10} {'F1':>10} {'ECE':>10} {'Delay':>10} {'Corr':>10}"
     lines.append(header)
-    lines.append("-" * 72)
+    lines.append("-" * 84)
  
     for fs_val, agg in results_by_fs.items():
-        variant = f"fs→{fs_val}"
+        variant = f"OOD→{fs_val}"
         lewm_row = (
             f"{variant:<12} {'LeWM':<10} "
             f"{agg['lewm_auroc_mean']:.4f}±{agg['lewm_auroc_std']:.4f}  "
             f"{agg['lewm_f1_mean']:.4f}±{agg['lewm_f1_std']:.4f}  "
             f"{agg['lewm_ece_mean']:.4f}±{agg['lewm_ece_std']:.4f}  "
-            f"{agg['lewm_delay_mean']:.1f}±{agg['lewm_delay_std']:.1f}"
+            f"{agg['lewm_delay_mean']:.1f}±{agg['lewm_delay_std']:.1f}  "
+            f"{agg['lewm_corr_mean']:.3f}±{agg['lewm_corr_std']:.3f}"
         )
         base_row = (
             f"{'':<12} {'Baseline':<10} "
             f"{agg['base_auroc_mean']:.4f}±{agg['base_auroc_std']:.4f}  "
             f"{agg['base_f1_mean']:.4f}±{agg['base_f1_std']:.4f}  "
             f"{agg['base_ece_mean']:.4f}±{agg['base_ece_std']:.4f}  "
-            f"{agg['base_delay_mean']:.1f}±{agg['base_delay_std']:.1f}"
+            f"{agg['base_delay_mean']:.1f}±{agg['base_delay_std']:.1f}  "
+            f"{agg['base_corr_mean']:.3f}±{agg['base_corr_std']:.3f}"
         )
         lines.append(lewm_row)
         lines.append(base_row)
-        lines.append("-" * 72)
+        lines.append("-" * 84)
  
     lines.append("")
     lines.append("Metrics:")
@@ -553,7 +608,9 @@ def print_and_save_report(
     lines.append("  ECE    : Expected Calibration Error. Lower = better.")
     lines.append("  Delay  : Steps after OOD trigger before detection. Lower = better.")
     lines.append("           -1 means detection failed.")
-    lines.append(SEPARATOR)
+    lines.append("  Corr   : Pearson correlation between Latent Surprise and Smoothed Reward")
+    lines.append("           during OOD phase. Stronger negative correlation = better.")
+    lines.append("=" * 84)
  
     report_str = "\n".join(lines)
     print(report_str)

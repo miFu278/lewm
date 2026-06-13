@@ -72,14 +72,26 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Huấn luyện sử dụng thiết bị: {device}")
     
+    # Đường dẫn lưu models
+    models_dir = os.path.join(project_dir, "models")
+    os.makedirs(models_dir, exist_ok=True)
+    lewm_save_path = os.path.join(models_dir, f"lewm_{clean_env_id}.pth")
+    baseline_save_path = os.path.join(models_dir, f"baseline_{clean_env_id}.pth")
+
     # 2. Khởi tạo LeWorldModel
     print("\n--- Khởi tạo LeWorldModel (JEPA) ---")
     lewm = LeWorldModel(latent_dim=latent_dim, action_dim=action_dim).to(device)
+    if os.path.exists(lewm_save_path):
+        print(f"Tìm thấy trọng số LeWM cũ tại {lewm_save_path}. Đang tải lên để train tiếp...")
+        lewm.load_state_dict(torch.load(lewm_save_path, map_location=device))
     optimizer_lewm = optim.Adam(lewm.parameters(), lr=lr)
     
     # 3. Khởi tạo Baseline (Pixel Predictor)
     print("--- Khởi tạo Pixel Reconstruction Baseline ---")
     baseline = PixelPredictor(action_dim=action_dim).to(device)
+    if os.path.exists(baseline_save_path):
+        print(f"Tìm thấy trọng số Baseline cũ tại {baseline_save_path}. Đang tải lên để train tiếp...")
+        baseline.load_state_dict(torch.load(baseline_save_path, map_location=device))
     optimizer_baseline = optim.Adam(baseline.parameters(), lr=lr)
     
     # 4. Huấn luyện
@@ -144,12 +156,6 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
               f"Baseline Pixel Loss: {avg_base:.6f}")
               
     # 5. Lưu models
-    models_dir = os.path.join(project_dir, "models")
-    os.makedirs(models_dir, exist_ok=True)
-    
-    lewm_save_path = os.path.join(models_dir, f"lewm_{clean_env_id}.pth")
-    baseline_save_path = os.path.join(models_dir, f"baseline_{clean_env_id}.pth")
-    
     torch.save(lewm.state_dict(), lewm_save_path)
     torch.save(baseline.state_dict(), baseline_save_path)
     
