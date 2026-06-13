@@ -6,6 +6,7 @@ import numpy as np
 import os
 import argparse
 import sys
+from tqdm import tqdm
 
 # Thêm đường dẫn project vào sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -106,7 +107,7 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
         epoch_lewm_total_loss = 0.0
         epoch_base_loss = 0.0
         
-        for batch_idx, (obs_t, action_t, obs_t1) in enumerate(dataloader):
+        for batch_idx, (obs_t, action_t, obs_t1) in enumerate(tqdm(dataloader, desc=f"Epoch [{epoch+1}/{epochs}]", leave=False)):
             obs_t = obs_t.to(device)
             action_t = action_t.to(device)
             obs_t1 = obs_t1.to(device)
