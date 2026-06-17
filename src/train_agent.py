@@ -17,9 +17,15 @@ def train_ppo_atari(env_id="ALE/Pong-v5", total_timesteps=100000, save_dir="mode
     os.makedirs(save_dir_full, exist_ok=True)
     
     print(f"Khởi tạo môi trường {env_id}...")
-    # Nếu là Procgen, ta dùng make_vec_env
     if "procgen" in env_id.lower():
-        vec_env = make_vec_env(env_id, n_envs=4, seed=0)
+        from stable_baselines3.common.vec_env import DummyVecEnv
+        import gym as gym_old
+        import procgen
+        from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
+        def make_procgen_env():
+            env = gym_old.make(env_id)
+            return GymV21CompatibilityV0(env=env)
+        vec_env = DummyVecEnv([make_procgen_env for _ in range(4)])
     else:
         # Sử dụng make_atari_env để tạo môi trường chuẩn Atari
         vec_env = make_atari_env(env_id, n_envs=4, seed=0)
