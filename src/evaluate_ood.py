@@ -282,10 +282,10 @@ def run_single_seed(
             else:
                 action_val = env.action_space.sample()
  
-            # Chuẩn bị tensor obs_t
+            # Chuẩn bị tensor obs_t (4 frames)
             obs_t = (
-                torch.tensor(obs_proc, dtype=torch.float32)
-                .unsqueeze(0).unsqueeze(0).to(device) / 255.0
+                torch.tensor(frame_stack, dtype=torch.float32)
+                .to(device) / 255.0
             )
             act_t = torch.tensor([action_val], dtype=torch.long).to(device)
  
@@ -308,12 +308,14 @@ def run_single_seed(
  
             # Preprocess next_obs
             next_obs_proc = preprocess_frame(next_obs)
-            next_obs_t = (
-                torch.tensor(next_obs_proc, dtype=torch.float32)
-                .unsqueeze(0).unsqueeze(0).to(device) / 255.0
-            )
- 
+            
+            # Cập nhật frame_stack với next frame
             push_frame(next_obs_proc)
+            
+            next_obs_t = (
+                torch.tensor(frame_stack, dtype=torch.float32)
+                .to(device) / 255.0
+            )
  
             # ── Latent Surprise (LeWM) ──────────────────────────────────────
             z_t = lewm.get_latent(obs_t)
@@ -340,6 +342,7 @@ def run_single_seed(
                 obs, _ = env.reset()
                 env.frameskip = cur_fs
                 obs_proc = preprocess_frame(obs)
+                frame_stack.fill(0)
                 push_frame(obs_proc)
  
     env.close()

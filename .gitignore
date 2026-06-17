@@ -1,1 +1,4 @@
 *.zip
+*datasets
+*models
+.agent/skills
