@@ -27,7 +27,12 @@ def collect_atari_data(env_id="ALE/Pong-v5", num_episodes=5, save_dir="datasets"
     
     # Thiết lập môi trường
     if "procgen" in env_id.lower():
-        env = gym.make(env_id, render_mode="rgb_array")
+        import gym as gym_old
+        import procgen
+        from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
+        
+        env = gym_old.make(env_id, render_mode="rgb_array")
+        env = GymV21CompatibilityV0(env=env)
         env = ProcgenOODWrapper(env)
     else:
         # Cần set frameskip=1 để wrapper tự quản lý frameskip cho Atari

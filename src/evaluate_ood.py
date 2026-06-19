@@ -242,7 +242,12 @@ def run_single_seed(
     """
     # Setup env
     if "procgen" in env_id.lower():
-        env = gym.make(env_id, render_mode="rgb_array")
+        import gym as gym_old
+        import procgen
+        from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
+        
+        env = gym_old.make(env_id, render_mode="rgb_array")
+        env = GymV21CompatibilityV0(env=env)
         env = ProcgenOODWrapper(env)
     else:
         env = gym.make(env_id, frameskip=1, render_mode="rgb_array")
@@ -261,15 +266,32 @@ def run_single_seed(
     pixel_normalizer = OnlineEMANormalizer(alpha=ema_alpha)
  
     # Frame stack cho PPO (4 frames × 84×84)
-    frame_stack = np.zeros((1, 4, 84, 84), dtype=np.uint8)
+    frame_stack = np.zeros((1, 4, 84, 84), dtype=np.float32)
  
     def push_frame(frame: np.ndarray):
         frame_stack[0, :-1] = frame_stack[0, 1:]
         frame_stack[0, -1] = frame
+        
+    ppo_frame_stack = None
+    is_procgen = "procgen" in env_id.lower()
+    if is_procgen:
+        ppo_frame_stack = np.zeros((1, 12, 64, 64), dtype=np.uint8)
+        
+    def push_ppo_frame(frame: np.ndarray):
+        if is_procgen:
+            transposed = np.transpose(frame, (2, 0, 1))
+            ppo_frame_stack[0, :-3] = ppo_frame_stack[0, 3:]
+            ppo_frame_stack[0, -3:] = transposed
  
-    obs, _ = env.reset(seed=seed)
+    try:
+        obs, info = env.reset(seed=seed)
+    except TypeError:
+        obs, info = env.reset()
+        
     obs_proc = preprocess_frame(obs)
     push_frame(obs_proc)
+    if is_procgen:
+        push_ppo_frame(obs)
  
     with torch.no_grad():
         for step in range(steps):
@@ -277,7 +299,10 @@ def run_single_seed(
  
             # Chọn action
             if ppo_model is not None and HAS_PPO:
-                action, _ = ppo_model.predict(frame_stack, deterministic=False)
+                if is_procgen:
+                    action, _ = ppo_model.predict(ppo_frame_stack, deterministic=False)
+                else:
+                    action, _ = ppo_model.predict(frame_stack, deterministic=False)
                 action_val = int(action[0])
             else:
                 action_val = env.action_space.sample()
@@ -308,10 +333,8 @@ def run_single_seed(
  
             # Preprocess next_obs
             next_obs_proc = preprocess_frame(next_obs)
-            
-            # Cập nhật frame_stack với next frame
-            push_frame(next_obs_proc)
-            
+            if is_procgen:
+                push_ppo_frame(next_obs)
             next_obs_t = (
                 torch.tensor(frame_stack, dtype=torch.float32)
                 .to(device) / 255.0
@@ -338,12 +361,20 @@ def run_single_seed(
             obs_proc = next_obs_proc
  
             if done:
-                cur_fs = env.frameskip
-                obs, _ = env.reset()
-                env.frameskip = cur_fs
+                cur_fs = None
+                if not is_procgen:
+                    cur_fs = env.frameskip
+                try:
+                    obs, _ = env.reset()
+                except ValueError:
+                    obs = env.reset()
+                if not is_procgen and cur_fs is not None:
+                    env.frameskip = cur_fs
                 obs_proc = preprocess_frame(obs)
                 frame_stack.fill(0)
                 push_frame(obs_proc)
+                if is_procgen:
+                    push_ppo_frame(obs)
  
     env.close()
  
@@ -637,7 +668,7 @@ def main(args):
     print(f"Device: {device}")
  
     # ── Xác định action_dim ──────────────────────────────────────────────────
-    action_dim = 4 if "Breakout" in args.env else 6
+    action_dim = 15 if "procgen" in args.env.lower() else (4 if "Breakout" in args.env else 6)
  
     # ── Load models ──────────────────────────────────────────────────────────
     lewm_path = os.path.join(models_dir, f"lewm_{clean_id}.pth")

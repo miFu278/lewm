@@ -21,15 +21,31 @@ class TransitionDataset(Dataset):
     """
     Dataset cho dữ liệu chuyển dịch (transitions): (s_t, a_t, s_{t+1})
     """
-    def __init__(self, data_path):
-        if not os.path.exists(data_path):
-            raise FileNotFoundError(f"Không tìm thấy file dataset tại: {data_path}")
+    def __init__(self, data_paths):
+        if isinstance(data_paths, str):
+            data_paths = [data_paths]
             
-        print(f"Đang tải dataset từ {data_path}...")
-        data = np.load(data_path)
-        self.obs = data['obs'] # shape [N, 84, 84]
-        self.actions = data['actions'] # shape [N]
-        self.terminals = data['terminals'] # shape [N]
+        all_obs = []
+        all_actions = []
+        all_terminals = []
+        
+        for data_path in data_paths:
+            if not os.path.exists(data_path):
+                print(f"Bỏ qua file không tồn tại: {data_path}")
+                continue
+                
+            print(f"Đang tải dataset từ {data_path}...")
+            data = np.load(data_path)
+            all_obs.append(data['obs'])
+            all_actions.append(data['actions'])
+            all_terminals.append(data['terminals'])
+            
+        if not all_obs:
+            raise FileNotFoundError("Không có dataset nào hợp lệ để tải!")
+            
+        self.obs = np.concatenate(all_obs, axis=0) # shape [N, 84, 84]
+        self.actions = np.concatenate(all_actions, axis=0) # shape [N]
+        self.terminals = np.concatenate(all_terminals, axis=0) # shape [N]
         
         # Tạo mảng lưu vị trí bắt đầu của mỗi episode để build frame stack
         self.start_idx = np.zeros(len(self.obs), dtype=int)
@@ -45,7 +61,7 @@ class TransitionDataset(Dataset):
             if not self.terminals[i]:
                 self.valid_indices.append(i)
                 
-        print(f"Tổng số transitions hợp lệ: {len(self.valid_indices)} trên {len(self.obs)} frames.")
+        print(f"Tổng số transitions hợp lệ: {len(self.valid_indices)} trên {len(self.obs)} frames (sau khi gộp).")
 
     def __len__(self):
         return len(self.valid_indices)
@@ -67,12 +83,19 @@ class TransitionDataset(Dataset):
         return obs_t, action_t, obs_t1
 
 def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda_sig=0.1, latent_dim=64):
+    import glob
     clean_env_id = env_id.replace("/", "_").replace("-", "_")
-    dataset_path = os.path.join(project_dir, "datasets", f"atari_data_{clean_env_id}.npz")
+    search_pattern = os.path.join(project_dir, "datasets", f"atari_data_{clean_env_id}*.npz")
+    dataset_files = glob.glob(search_pattern)
+    
+    if not dataset_files:
+        default_path = os.path.join(project_dir, "datasets", f"atari_data_{clean_env_id}.npz")
+        dataset_files = [default_path]
     
     # 1. Khởi tạo Dataset & DataLoader
     try:
-        dataset = TransitionDataset(dataset_path)
+        # Load và gộp toàn bộ các file dataset tìm được
+        dataset = TransitionDataset(dataset_files)
     except FileNotFoundError as e:
         print(f"Lỗi: {e}")
         print("Vui lòng chạy collect_data.py trước để tạo dataset!")
@@ -83,7 +106,9 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
     # Xác định số hành động từ môi trường
     # Pong có 6 actions. Hãy lấy thông tin này tự động nếu có thể, hoặc mặc định 6
     action_dim = 6
-    if "Breakout" in env_id:
+    if "procgen" in env_id.lower():
+        action_dim = 15
+    elif "Breakout" in env_id:
         action_dim = 4
         
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
