@@ -48,6 +48,14 @@ class TransitionDataset(Dataset):
         self.actions = np.concatenate(all_actions, axis=0) # shape [N]
         self.terminals = np.concatenate(all_terminals, axis=0) # shape [N]
         
+        # Tạo mảng lưu vị trí bắt đầu của mỗi episode để build frame stack
+        self.start_idx = np.zeros(len(self.obs), dtype=int)
+        curr_start = 0
+        for i in range(len(self.obs)):
+            self.start_idx[i] = curr_start
+            if self.terminals[i]:
+                curr_start = i + 1
+                
         # Tạo danh sách các index chuyển dịch hợp lệ (không bị ngắt bởi terminal/done)
         self.valid_indices = []
         for i in range(len(self.obs) - 1):
@@ -59,12 +67,20 @@ class TransitionDataset(Dataset):
     def __len__(self):
         return len(self.valid_indices)
 
+    def get_stack(self, end_idx):
+        start_i = self.start_idx[end_idx]
+        stack = []
+        for j in range(end_idx - 3, end_idx + 1):
+            j_valid = max(j, start_i)
+            stack.append(self.obs[j_valid])
+        return np.stack(stack, axis=0)
+
     def __getitem__(self, idx):
         i = self.valid_indices[idx]
-        # Thêm channel dimension [1, 84, 84] và chuẩn hóa về [0, 1]
-        obs_t = torch.tensor(self.obs[i], dtype=torch.float32).unsqueeze(0) / 255.0
+        # Frame stack [4, 84, 84] chuẩn hóa về [0, 1]
+        obs_t = torch.tensor(self.get_stack(i), dtype=torch.float32) / 255.0
         action_t = torch.tensor(self.actions[i], dtype=torch.long)
-        obs_t1 = torch.tensor(self.obs[i+1], dtype=torch.float32).unsqueeze(0) / 255.0
+        obs_t1 = torch.tensor(self.get_stack(i+1), dtype=torch.float32) / 255.0
         return obs_t, action_t, obs_t1
 
 def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda_sig=0.1, latent_dim=64):

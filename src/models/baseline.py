@@ -10,13 +10,13 @@ class PixelPredictor(nn.Module):
     giúp model học được spatial correlation của action.
  
     Flow:
-        obs [B,1,84,84]
+        obs [B,4,84,84]
           → enc_conv1 (k4,s2,p1) → [B,16,42,42]
           → enc_conv2 (k4,s2,p1) → [B,32,21,21]
         action [B] → Embedding → [B,8] → broadcast → [B,8,21,21]
         concat                              → [B,40,21,21]
           → dec_conv1 (k4,s2,p1) → [B,16,42,42]
-          → dec_conv2 (k4,s2,p1) + Sigmoid → [B,1,84,84] ∈ [0,1]
+          → dec_conv2 (k4,s2,p1) + Sigmoid → [B,4,84,84] ∈ [0,1]
  
     Args:
         action_dim:       Số lượng action rời rạc (Pong=6, Breakout=4).
@@ -27,7 +27,7 @@ class PixelPredictor(nn.Module):
         super().__init__()
  
         # ── Encoder ──────────────────────────────────────────────────────────
-        self.enc_conv1 = nn.Conv2d(1, 16, kernel_size=4, stride=2, padding=1)
+        self.enc_conv1 = nn.Conv2d(4, 16, kernel_size=4, stride=2, padding=1)
         self.enc_conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1)
  
         # ── Action Embedding ─────────────────────────────────────────────────
@@ -38,16 +38,16 @@ class PixelPredictor(nn.Module):
         self.dec_conv1 = nn.ConvTranspose2d(
             32 + action_embed_dim, 16, kernel_size=4, stride=2, padding=1
         )
-        self.dec_conv2 = nn.ConvTranspose2d(16, 1, kernel_size=4, stride=2, padding=1)
+        self.dec_conv2 = nn.ConvTranspose2d(16, 4, kernel_size=4, stride=2, padding=1)
  
     def forward(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            obs:    [B, 1, 84, 84] float32 trong [0, 1]
+            obs:    [B, 4, 84, 84] float32 trong [0, 1]
             action: [B] long
  
         Returns:
-            pred_next_obs: [B, 1, 84, 84] float32 trong [0, 1]
+            pred_next_obs: [B, 4, 84, 84] float32 trong [0, 1]
         """
         # Encode
         h = F.relu(self.enc_conv1(obs))   # [B, 16, 42, 42]
@@ -63,6 +63,6 @@ class PixelPredictor(nn.Module):
  
         # Decode
         h = F.relu(self.dec_conv1(h))            # [B, 16, 42, 42]
-        pred_next_obs = torch.sigmoid(self.dec_conv2(h))  # [B, 1, 84, 84]
+        pred_next_obs = torch.sigmoid(self.dec_conv2(h))  # [B, 4, 84, 84]
  
         return pred_next_obs
