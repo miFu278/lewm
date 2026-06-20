@@ -1,3 +1,5 @@
 *.zip
 *models
 *datasets
+*.ipynb
+*.tar.gz

@@ -9,3 +9,6 @@ ale-py
 AutoROM[accept-rom-license]
 tensorboard
 flask
+timm
+einops
+scipy
