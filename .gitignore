@@ -1,4 +1,5 @@
 *.zip
-*datasets
 *models
-.agent/skills
+*datasets
+*.ipynb
+*.tar.gz

@@ -246,7 +246,7 @@ def run_single_seed(
         import procgen
         from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
         
-        env = gym_old.make(env_id, render_mode="rgb_array")
+        env = gym_old.make(env_id, render_mode="rgb_array", start_level=seed, num_levels=1)
         env = GymV21CompatibilityV0(env=env)
         env = ProcgenOODWrapper(env)
     else:
@@ -671,9 +671,12 @@ def main(args):
     action_dim = 15 if "procgen" in args.env.lower() else (4 if "Breakout" in args.env else 6)
  
     # ── Load models ──────────────────────────────────────────────────────────
-    lewm_path = os.path.join(models_dir, f"lewm_{clean_id}.pth")
+    lewm_path = os.path.join(models_dir, f"lewm_vit_{clean_id}.pth")
     base_path = os.path.join(models_dir, f"baseline_{clean_id}.pth")
  
+    if not os.path.exists(lewm_path):
+        lewm_path = os.path.join(models_dir, f"lewm_{clean_id}.pth")
+
     if not os.path.exists(lewm_path):
         raise FileNotFoundError(
             f"Không tìm thấy LeWM checkpoint tại: {lewm_path}\n"
@@ -686,7 +689,12 @@ def main(args):
         )
  
     print(f"Loading LeWM từ: {lewm_path}")
-    lewm = LeWorldModel(latent_dim=args.latent_dim, action_dim=action_dim).to(device)
+    if "lewm_vit" in lewm_path:
+        lewm = LeWorldModel(action_dim=action_dim, embed_dim=192).to(device)
+    else:
+        from src.models.lewm_cnn import CNNLeWorldModel
+        lewm = CNNLeWorldModel(action_dim=action_dim, embed_dim=64).to(device)
+    
     lewm.load_state_dict(torch.load(lewm_path, map_location=device, weights_only=True))
     lewm.eval()
  
@@ -700,7 +708,11 @@ def main(args):
     ppo_path = os.path.join(models_dir, f"ppo_{clean_id}.zip")
     if HAS_PPO and os.path.exists(ppo_path):
         print(f"Loading PPO Agent từ: {ppo_path}")
-        ppo_model = PPO.load(ppo_path)
+        try:
+            ppo_model = PPO.load(ppo_path)
+        except Exception as e:
+            print(f"Lỗi load PPO ({e}), dùng Random Agent thay thế.")
+            ppo_model = None
     else:
         print("Cảnh báo: Dùng Random Agent (PPO không tìm thấy).")
  

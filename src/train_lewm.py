@@ -7,6 +7,7 @@ import os
 import argparse
 import sys
 from tqdm import tqdm
+import copy
 
 # Thêm đường dẫn project vào sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +15,7 @@ project_dir = os.path.dirname(current_dir)
 if project_dir not in sys.path:
     sys.path.append(project_dir)
 
-from src.models.lewm import LeWorldModel, sigreg_loss
+from src.models.lewm import LeWorldModel, SIGReg
 from src.models.baseline import PixelPredictor
 
 class TransitionDataset(Dataset):
@@ -117,16 +118,21 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
     # Đường dẫn lưu models
     models_dir = os.path.join(project_dir, "models")
     os.makedirs(models_dir, exist_ok=True)
-    lewm_save_path = os.path.join(models_dir, f"lewm_{clean_env_id}.pth")
+    lewm_save_path = os.path.join(models_dir, f"lewm_vit_{clean_env_id}.pth")
     baseline_save_path = os.path.join(models_dir, f"baseline_{clean_env_id}.pth")
 
     # 2. Khởi tạo LeWorldModel
     print("\n--- Khởi tạo LeWorldModel (JEPA) ---")
-    lewm = LeWorldModel(latent_dim=latent_dim, action_dim=action_dim).to(device)
+    lewm = LeWorldModel(action_dim=action_dim, embed_dim=192).to(device)
     if os.path.exists(lewm_save_path):
         print(f"Tìm thấy trọng số LeWM cũ tại {lewm_save_path}. Đang tải lên để train tiếp...")
         lewm.load_state_dict(torch.load(lewm_save_path, map_location=device))
     optimizer_lewm = optim.Adam(lewm.parameters(), lr=lr)
+    
+    # Khởi tạo Target Encoder (bản sao của lewm.encoder)
+    target_encoder = copy.deepcopy(lewm.encoder).to(device)
+    for p in target_encoder.parameters():
+        p.requires_grad = False
     
     # 3. Khởi tạo Baseline (Pixel Predictor)
     print("--- Khởi tạo Pixel Reconstruction Baseline ---")
@@ -138,6 +144,7 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
     
     # 4. Huấn luyện
     print(f"\nBắt đầu huấn luyện trong {epochs} epochs...")
+    sigreg_module = SIGReg(num_proj=1024).to(device)
     
     for epoch in range(epochs):
         lewm.train()
@@ -156,21 +163,30 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
             # --- Huấn luyện LeWorldModel ---
             optimizer_lewm.zero_grad()
             
-            # Forward
+            # Forward Online
             z_t = lewm.get_latent(obs_t)
-            z_t1 = lewm.get_latent(obs_t1)
             pred_z_t1 = lewm.predict_next(z_t, action_t)
             
-            # Loss
-            pred_loss = F_mse_loss = nn.MSELoss()(pred_z_t1, z_t1)
-            # Regularize cả z_t và z_t1 bằng SIGReg
-            z_all = torch.cat([z_t, z_t1], dim=0)
-            sig_loss = sigreg_loss(z_all)
+            # Forward Target (Không có gradient)
+            with torch.no_grad():
+                z_t1_target = target_encoder(obs_t1)
+            
+            # Loss dự đoán
+            pred_loss = F_mse_loss = nn.MSELoss()(pred_z_t1, z_t1_target)
+            
+            # Regularize các vector tạo ra bởi mạng Online bằng SIGReg
+            z_all = torch.cat([z_t, pred_z_t1], dim=0)
+            sig_loss = sigreg_module(z_all.unsqueeze(0))
             
             total_lewm_loss = pred_loss + lambda_sig * sig_loss
             
             total_lewm_loss.backward()
             optimizer_lewm.step()
+            
+            # Cập nhật Target Encoder (EMA)
+            ema_tau = 0.99
+            for p_target, p_online in zip(target_encoder.parameters(), lewm.encoder.parameters()):
+                p_target.data.mul_(ema_tau).add_((1 - ema_tau) * p_online.data)
             
             epoch_pred_loss += pred_loss.item()
             epoch_sig_loss += sig_loss.item()
