@@ -3,3 +3,4 @@
 *datasets
 *.ipynb
 *.tar.gz
+.agent/skills
