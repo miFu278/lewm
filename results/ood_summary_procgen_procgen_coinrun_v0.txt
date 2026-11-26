@@ -1,0 +1,25 @@
+====================================================================================
+OOD DYNAMICS DETECTION — EVALUATION REPORT
+====================================================================================
+Environment : procgen:procgen-coinrun-v0
+Total Steps : 1000  |  OOD Trigger : step 500
+Seeds       : 10  (mean ± std)
+
+Variant      Model           AUROC         F1        ECE      Delay       Corr
+------------------------------------------------------------------------------------
+OOD→2        LeWM       0.4414±0.1475  0.6738±0.0085  0.2515±0.1399  2.2±0.6  nan±nan
+             Baseline   0.4309±0.0691  0.6668±0.0004  0.2949±0.0352  2.0±0.0  nan±nan
+------------------------------------------------------------------------------------
+OOD→8        LeWM       0.4814±0.1768  0.6787±0.0298  0.2660±0.1118  2.1±0.3  nan±nan
+             Baseline   0.4461±0.0505  0.6667±0.0000  0.2928±0.0333  2.0±0.0  nan±nan
+------------------------------------------------------------------------------------
+
+Metrics:
+  AUROC  : Area Under ROC Curve. Higher = better. Random = 0.5
+  F1     : Best F1 over all thresholds. Higher = better.
+  ECE    : Expected Calibration Error. Lower = better.
+  Delay  : Steps after OOD trigger before detection. Lower = better.
+           -1 means detection failed.
+  Corr   : Pearson correlation between Latent Surprise and Smoothed Reward
+           during OOD phase. Stronger negative correlation = better.
+====================================================================================

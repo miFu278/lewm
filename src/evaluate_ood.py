@@ -4,6 +4,13 @@ import os
 import sys
 import warnings
 warnings.filterwarnings("ignore")
+
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
  
 import cv2
 import numpy as np
@@ -236,6 +243,7 @@ def run_single_seed(
     new_frameskip: int,
     seed: int,
     ema_alpha: float = 0.99,
+    frame_stack_size: int = 1,
 ) -> dict:
     """
     Chạy một lượt evaluation trên một seed, trả về dict kết quả.
@@ -307,11 +315,17 @@ def run_single_seed(
             else:
                 action_val = env.action_space.sample()
  
-            # Chuẩn bị tensor obs_t (4 frames)
-            obs_t = (
-                torch.tensor(frame_stack, dtype=torch.float32)
-                .to(device) / 255.0
-            )
+            # Chuẩn bị tensor obs_t
+            if frame_stack_size == 1:
+                obs_t = (
+                    torch.tensor(frame_stack[:, -1:, :, :], dtype=torch.float32)
+                    .to(device) / 255.0
+                )
+            else:
+                obs_t = (
+                    torch.tensor(frame_stack, dtype=torch.float32)
+                    .to(device) / 255.0
+                )
             act_t = torch.tensor([action_val], dtype=torch.long).to(device)
  
             # Kích hoạt OOD đúng tại ood_step
@@ -335,10 +349,18 @@ def run_single_seed(
             next_obs_proc = preprocess_frame(next_obs)
             if is_procgen:
                 push_ppo_frame(next_obs)
-            next_obs_t = (
-                torch.tensor(frame_stack, dtype=torch.float32)
-                .to(device) / 255.0
-            )
+            # Update frame stack buffer
+            push_frame(next_obs_proc)
+            if frame_stack_size == 1:
+                next_obs_t = (
+                    torch.tensor(frame_stack[:, -1:, :, :], dtype=torch.float32)
+                    .to(device) / 255.0
+                )
+            else:
+                next_obs_t = (
+                    torch.tensor(frame_stack, dtype=torch.float32)
+                    .to(device) / 255.0
+                )
  
             # ── Latent Surprise (LeWM) ──────────────────────────────────────
             z_t = lewm.get_latent(obs_t)
@@ -457,6 +479,7 @@ def run_multi_seed(
     new_frameskip: int,
     n_seeds: int,
     ema_alpha: float,
+    frame_stack_size: int = 1,
 ) -> dict:
     """
     Chạy evaluation trên n_seeds seed khác nhau, trả về mean ± std.
@@ -466,7 +489,7 @@ def run_multi_seed(
         print(f"  [Seed {seed+1}/{n_seeds}] frameskip={new_frameskip} ...", flush=True)
         r = run_single_seed(
             env_id, lewm, baseline, device, ppo_model,
-            steps, ood_step, new_frameskip, seed, ema_alpha
+            steps, ood_step, new_frameskip, seed, ema_alpha, frame_stack_size
         )
         all_results.append(r)
  
@@ -499,6 +522,8 @@ def run_multi_seed(
         "base_delay_std":  agg("base_delay")[1],
         "base_corr_mean":  agg("base_corr")[0],
         "base_corr_std":   agg("base_corr")[1],
+        "lewm_auroc_raw":  [r["lewm_auroc"] for r in all_results],
+        "base_auroc_raw":  [r["base_auroc"] for r in all_results],
         # Raw arrays từ seed cuối (để vẽ representative plot)
         "_last_result": all_results[-1],
     }
@@ -659,7 +684,7 @@ def print_and_save_report(
 # ═════════════════════════════════════════════════════════════════════════════
  
 def main(args):
-    clean_id = args.env.replace("/", "_").replace("-", "_")
+    clean_id = args.env.replace("/", "_").replace("-", "_").replace(":", "_")
     results_dir = os.path.join(project_dir, "results")
     models_dir = os.path.join(project_dir, "models")
     os.makedirs(results_dir, exist_ok=True)
@@ -671,11 +696,21 @@ def main(args):
     action_dim = 15 if "procgen" in args.env.lower() else (4 if "Breakout" in args.env else 6)
  
     # ── Load models ──────────────────────────────────────────────────────────
-    lewm_path = os.path.join(models_dir, f"lewm_vit_{clean_id}.pth")
-    base_path = os.path.join(models_dir, f"baseline_{clean_id}.pth")
+    suffix = f"_stack{args.frame_stack}" if args.frame_stack > 1 else ""
+    lewm_path = os.path.join(models_dir, f"lewm_vit_{clean_id}{suffix}.pth")
+    base_path = os.path.join(models_dir, f"baseline_{clean_id}{suffix}.pth")
  
-    if not os.path.exists(lewm_path):
+    if not os.path.exists(lewm_path) and args.frame_stack == 1:
         lewm_path = os.path.join(models_dir, f"lewm_{clean_id}.pth")
+
+    if args.frame_stack == 1:
+        alt_id = args.env.replace("/", "_").replace("-", "_")
+        alt_lewm_path = os.path.join(models_dir, f"lewm_vit_{alt_id}.pth")
+        if os.path.exists(alt_lewm_path):
+            lewm_path = alt_lewm_path
+        alt_base_path = os.path.join(models_dir, f"baseline_{alt_id}.pth")
+        if os.path.exists(alt_base_path):
+            base_path = alt_base_path
 
     if not os.path.exists(lewm_path):
         raise FileNotFoundError(
@@ -690,7 +725,7 @@ def main(args):
  
     print(f"Loading LeWM từ: {lewm_path}")
     if "lewm_vit" in lewm_path:
-        lewm = LeWorldModel(action_dim=action_dim, embed_dim=192).to(device)
+        lewm = LeWorldModel(action_dim=action_dim, embed_dim=192, in_chans=args.frame_stack).to(device)
     else:
         from src.models.lewm_cnn import CNNLeWorldModel
         lewm = CNNLeWorldModel(action_dim=action_dim, embed_dim=64).to(device)
@@ -699,13 +734,22 @@ def main(args):
     lewm.eval()
  
     print(f"Loading Baseline từ: {base_path}")
-    baseline = PixelPredictor(action_dim=action_dim).to(device)
+    baseline = PixelPredictor(in_channels=args.frame_stack, action_dim=action_dim, out_channels=args.frame_stack).to(device)
     baseline.load_state_dict(torch.load(base_path, map_location=device, weights_only=True))
     baseline.eval()
  
-    # ── Load PPO (optional) ──────────────────────────────────────────────────
     ppo_model = None
+    # 1. Try with underscores (e.g. ppo_procgen_procgen_coinrun_v0.zip)
     ppo_path = os.path.join(models_dir, f"ppo_{clean_id}.zip")
+    if not os.path.exists(ppo_path):
+        # 2. Try with literal colon (e.g. ppo_procgen:procgen_coinrun_v0.zip on Linux)
+        linux_clean_id = args.env.replace("/", "_").replace("-", "_")
+        ppo_path = os.path.join(models_dir, f"ppo_{linux_clean_id}.zip")
+    if not os.path.exists(ppo_path):
+        # 3. Try with Windows unicode colon (e.g. ppo_procgenprocgen_coinrun_v0.zip)
+        win_clean_id = args.env.replace("/", "_").replace("-", "_").replace(":", "")
+        ppo_path = os.path.join(models_dir, f"ppo_{win_clean_id}.zip")
+    
     if HAS_PPO and os.path.exists(ppo_path):
         print(f"Loading PPO Agent từ: {ppo_path}")
         try:
@@ -737,11 +781,12 @@ def main(args):
             new_frameskip=fs_val,
             n_seeds=args.seeds,
             ema_alpha=args.ema_alpha,
+            frame_stack_size=args.frame_stack,
         )
         results_by_fs[fs_val] = agg
  
     # ── Save JSON ────────────────────────────────────────────────────────────
-    json_path = os.path.join(results_dir, f"ood_metrics_{clean_id}.json")
+    json_path = os.path.join(results_dir, f"ood_metrics_{clean_id}{suffix}.json")
     # Loại bỏ numpy arrays trước khi serialize JSON
     json_safe = {}
     for fs_val, agg in results_by_fs.items():
@@ -753,11 +798,11 @@ def main(args):
     print(f"\n[JSON] Metrics đã lưu tại: {json_path}")
  
     # ── Plot ─────────────────────────────────────────────────────────────────
-    plot_path = os.path.join(results_dir, f"ood_plot_{clean_id}.png")
+    plot_path = os.path.join(results_dir, f"ood_plot_{clean_id}{suffix}.png")
     plot_results(results_by_fs, args.ood_step, args.env, plot_path)
  
     # ── Text report ──────────────────────────────────────────────────────────
-    txt_path = os.path.join(results_dir, f"ood_summary_{clean_id}.txt")
+    txt_path = os.path.join(results_dir, f"ood_summary_{clean_id}{suffix}.txt")
     print_and_save_report(
         results_by_fs, args.env, args.steps, args.ood_step, args.seeds, txt_path
     )
@@ -781,6 +826,8 @@ if __name__ == "__main__":
                         help="Chiều latent của LeWM (default: 64)")
     parser.add_argument("--ema_alpha", type=float, default=0.99,
                         help="Hệ số EMA normalization (default: 0.99)")
+    parser.add_argument("--frame_stack", type=int, default=1,
+                        help="Number of frames to stack (1 or 4)")
  
     args = parser.parse_args()
  

@@ -102,11 +102,19 @@ def run_ood_evaluation(env_id="ALE/Pong-v5", steps=400, ood_step=200, new_frames
     
     # 2. Tải PPO Agent để tạo hành động thông minh
     ppo_model = None
-    if os.path.exists(ppo_path):
-        print(f"Đang tải PPO Agent từ {ppo_path}...")
-        ppo_model = PPO.load(ppo_path)
+    resolved_ppo_path = ppo_path
+    if not os.path.exists(resolved_ppo_path):
+        for colon_char in ["_", ""]:
+            alt_path = ppo_path.replace(":", colon_char)
+            if os.path.exists(alt_path):
+                resolved_ppo_path = alt_path
+                break
+                
+    if os.path.exists(resolved_ppo_path):
+        print(f"Đang tải PPO Agent từ {resolved_ppo_path}...")
+        ppo_model = PPO.load(resolved_ppo_path)
     else:
-        print("Cảnh báo: Không tìm thấy PPO Agent. Sẽ dùng Random Agent để điều khiển!")
+        print(f"Cảnh báo: Không tìm thấy PPO Agent (đã thử {ppo_path}). Sẽ dùng Random Agent để điều khiển!")
         
     # 3. Tải LeWorldModel và Baseline
     if not os.path.exists(lewm_path) or not os.path.exists(baseline_path):

@@ -168,9 +168,9 @@ class ViTEncoder(nn.Module):
         return self.vit.forward_features(x)[:, 0]
 
 class LeWorldModel(nn.Module):
-    def __init__(self, action_dim=15, embed_dim=192):
+    def __init__(self, action_dim=15, embed_dim=192, in_chans=1):
         super().__init__()
-        self.encoder = ViTEncoder(img_size=84, patch_size=14, in_chans=1, embed_dim=embed_dim)
+        self.encoder = ViTEncoder(img_size=84, patch_size=14, in_chans=in_chans, embed_dim=embed_dim)
         self.action_embed = nn.Embedding(action_dim, embed_dim)
         
         # We process 1 step at a time in our training loop

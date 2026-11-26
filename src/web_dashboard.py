@@ -553,11 +553,19 @@ def run_simulation(env_id, latent_dim):
     
     # Tải PPO Agent để chọn hành động thông minh
     ppo_model = None
-    if os.path.exists(ppo_path):
-        print(f"[Engine] Đang tải PPO Agent từ {ppo_path}...")
-        ppo_model = PPO.load(ppo_path)
+    resolved_ppo_path = ppo_path
+    if not os.path.exists(resolved_ppo_path):
+        for colon_char in ["_", ""]:
+            alt_path = ppo_path.replace(":", colon_char)
+            if os.path.exists(alt_path):
+                resolved_ppo_path = alt_path
+                break
+                
+    if os.path.exists(resolved_ppo_path):
+        print(f"[Engine] Đang tải PPO Agent từ {resolved_ppo_path}...")
+        ppo_model = PPO.load(resolved_ppo_path)
     else:
-        print("[Engine] Không tìm thấy PPO Agent. Sẽ sử dụng hành động ngẫu nhiên!")
+        print(f"[Engine] Không tìm thấy PPO Agent (đã thử {ppo_path}). Sẽ sử dụng hành động ngẫu nhiên!")
         
     # Tải LeWM và Baseline
     if not os.path.exists(lewm_path) or not os.path.exists(baseline_path):

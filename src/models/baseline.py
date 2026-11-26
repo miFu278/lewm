@@ -23,22 +23,21 @@ class PixelPredictor(nn.Module):
         action_embed_dim: Chiều embedding action (default=8, nhỏ → tiết kiệm VRAM).
     """
  
-    def __init__(self, action_dim: int = 6, action_embed_dim: int = 8):
+    def __init__(self, in_channels: int = 4, action_dim: int = 6, action_embed_dim: int = 8, out_channels: int = 4):
         super().__init__()
  
-        # ── Encoder ──────────────────────────────────────────────────────────
-        self.enc_conv1 = nn.Conv2d(4, 16, kernel_size=4, stride=2, padding=1)
+        # --- Encoder ---
+        self.enc_conv1 = nn.Conv2d(in_channels, 16, kernel_size=4, stride=2, padding=1)
         self.enc_conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1)
  
-        # ── Action Embedding ─────────────────────────────────────────────────
+        # Action Embedding
         self.action_embedding = nn.Embedding(action_dim, action_embed_dim)
  
-        # ── Decoder ──────────────────────────────────────────────────────────
-        # Input: 32 (enc feature) + action_embed_dim (broadcast)
-        self.dec_conv1 = nn.ConvTranspose2d(
-            32 + action_embed_dim, 16, kernel_size=4, stride=2, padding=1
-        )
-        self.dec_conv2 = nn.ConvTranspose2d(16, 4, kernel_size=4, stride=2, padding=1)
+        # --- Decoder ---
+        # Feature map size sau enc_conv2 lA 21x21 (vA 84 -> 42 -> 21)
+        # ChAng ta sA broadcast action embedding thAnh 21x21 vA concat vAo cA1ng feature map
+        self.dec_conv1 = nn.ConvTranspose2d(32 + action_embed_dim, 16, kernel_size=4, stride=2, padding=1)
+        self.dec_conv2 = nn.ConvTranspose2d(16, out_channels, kernel_size=4, stride=2, padding=1)
  
     def forward(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         """

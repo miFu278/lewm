@@ -9,6 +9,13 @@ import sys
 from tqdm import tqdm
 import copy
 
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
 # Thêm đường dẫn project vào sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_dir = os.path.dirname(current_dir)
@@ -83,9 +90,9 @@ class TransitionDataset(Dataset):
         obs_t1 = torch.tensor(self.get_stack(i+1), dtype=torch.float32) / 255.0
         return obs_t, action_t, obs_t1
 
-def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda_sig=0.1, latent_dim=64):
+def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda_sig=0.1, latent_dim=64, frame_stack=1):
     import glob
-    clean_env_id = env_id.replace("/", "_").replace("-", "_")
+    clean_env_id = env_id.replace("/", "_").replace("-", "_").replace(":", "_")
     search_pattern = os.path.join(project_dir, "datasets", f"atari_data_{clean_env_id}*.npz")
     dataset_files = glob.glob(search_pattern)
     
@@ -118,15 +125,20 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
     # Đường dẫn lưu models
     models_dir = os.path.join(project_dir, "models")
     os.makedirs(models_dir, exist_ok=True)
-    lewm_save_path = os.path.join(models_dir, f"lewm_vit_{clean_env_id}.pth")
-    baseline_save_path = os.path.join(models_dir, f"baseline_{clean_env_id}.pth")
+    suffix = f"_stack{frame_stack}" if frame_stack > 1 else ""
+    lewm_save_path = os.path.join(models_dir, f"lewm_vit_{clean_env_id}{suffix}.pth")
+    baseline_save_path = os.path.join(models_dir, f"baseline_{clean_env_id}{suffix}.pth")
 
     # 2. Khởi tạo LeWorldModel
     print("\n--- Khởi tạo LeWorldModel (JEPA) ---")
-    lewm = LeWorldModel(action_dim=action_dim, embed_dim=192).to(device)
+    lewm = LeWorldModel(action_dim=action_dim, embed_dim=192, in_chans=frame_stack).to(device)
     if os.path.exists(lewm_save_path):
         print(f"Tìm thấy trọng số LeWM cũ tại {lewm_save_path}. Đang tải lên để train tiếp...")
-        lewm.load_state_dict(torch.load(lewm_save_path, map_location=device))
+        try:
+            lewm.load_state_dict(torch.load(lewm_save_path, map_location=device))
+        except RuntimeError as e:
+            print(f"Không thể tải trọng số cũ do khác biệt kiến trúc (shape mismatch): {e}")
+            print("Huấn luyện từ đầu cho cấu hình này.")
     optimizer_lewm = optim.Adam(lewm.parameters(), lr=lr)
     
     # Khởi tạo Target Encoder (bản sao của lewm.encoder)
@@ -136,10 +148,14 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
     
     # 3. Khởi tạo Baseline (Pixel Predictor)
     print("--- Khởi tạo Pixel Reconstruction Baseline ---")
-    baseline = PixelPredictor(action_dim=action_dim).to(device)
+    baseline = PixelPredictor(in_channels=frame_stack, action_dim=action_dim, out_channels=frame_stack).to(device)
     if os.path.exists(baseline_save_path):
         print(f"Tìm thấy trọng số Baseline cũ tại {baseline_save_path}. Đang tải lên để train tiếp...")
-        baseline.load_state_dict(torch.load(baseline_save_path, map_location=device))
+        try:
+            baseline.load_state_dict(torch.load(baseline_save_path, map_location=device))
+        except RuntimeError as e:
+            print(f"Không thể tải trọng số cũ do khác biệt kiến trúc (shape mismatch): {e}")
+            print("Huấn luyện từ đầu cho cấu hình này.")
     optimizer_baseline = optim.Adam(baseline.parameters(), lr=lr)
     
     # 4. Huấn luyện
@@ -156,6 +172,9 @@ def train_models(env_id="ALE/Pong-v5", epochs=15, batch_size=64, lr=1e-3, lambda
         epoch_base_loss = 0.0
         
         for batch_idx, (obs_t, action_t, obs_t1) in enumerate(tqdm(dataloader, desc=f"Epoch [{epoch+1}/{epochs}]", leave=False)):
+            if frame_stack == 1:
+                obs_t = obs_t[:, -1:, :, :]
+                obs_t1 = obs_t1[:, -1:, :, :]
             obs_t = obs_t.to(device)
             action_t = action_t.to(device)
             obs_t1 = obs_t1.to(device)
@@ -229,6 +248,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--lambda_sig", type=float, default=0.1, help="SIGReg loss scaling factor")
     parser.add_argument("--latent_dim", type=int, default=64, help="Latent space dimension for LeWM")
+    parser.add_argument("--frame_stack", type=int, default=1, help="Number of frames to stack (1 or 4)")
     args = parser.parse_args()
     
     train_models(
@@ -237,5 +257,6 @@ if __name__ == "__main__":
         batch_size=args.batch_size, 
         lr=args.lr, 
         lambda_sig=args.lambda_sig,
-        latent_dim=args.latent_dim
+        latent_dim=args.latent_dim,
+        frame_stack=args.frame_stack
     )

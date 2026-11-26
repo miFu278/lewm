@@ -41,11 +41,20 @@ def collect_atari_data(env_id="ALE/Pong-v5", num_episodes=5, save_dir="datasets"
     
     # Load model nếu có
     model = None
-    if model_path and os.path.exists(model_path):
-        print(f"Đang tải PPO model từ {model_path}...")
-        model = PPO.load(model_path)
+    resolved_path = model_path
+    if model_path and not os.path.exists(resolved_path):
+        # Try alternate names replacing colons (useful for Windows/Kaggle cross-compatibility)
+        for colon_char in ["_", ""]:
+            alt_path = model_path.replace(":", colon_char)
+            if os.path.exists(alt_path):
+                resolved_path = alt_path
+                break
+                
+    if resolved_path and os.path.exists(resolved_path):
+        print(f"Đang tải PPO model từ {resolved_path}...")
+        model = PPO.load(resolved_path)
     else:
-        print("Không tìm thấy model PPO hợp lệ. Sẽ dùng hành động ngẫu nhiên (Random Agent)!")
+        print(f"Không tìm thấy model PPO hợp lệ (đã thử {model_path}). Sẽ dùng hành động ngẫu nhiên (Random Agent)!")
     
     print(f"Bắt đầu thu thập dữ liệu cho {env_id}...")
     
